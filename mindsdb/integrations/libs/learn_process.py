@@ -1,30 +1,94 @@
+import time
 import importlib
 import traceback
 import datetime as dt
+from collections import UserDict
 
+from mindsdb_sql import parse_sql
 from mindsdb_sql.parser.ast import Identifier, Select, Star, NativeQuery
 
-from mindsdb.utilities.functions import mark_process
-from mindsdb.utilities.context import context as ctx
 import mindsdb.interfaces.storage.db as db
 from mindsdb.api.mysql.mysql_proxy.classes.sql_query import SQLQuery
 from mindsdb.integrations.utilities.sql_utils import make_sql_session
-from mindsdb_sql import parse_sql
 from mindsdb.integrations.handlers_client.ml_client_factory import MLClientFactory
 from mindsdb.integrations.libs.const import PREDICTOR_STATUS
 from mindsdb.interfaces.storage.model_fs import ModelStorage, HandlerStorage
 from mindsdb.interfaces.model.functions import get_model_records
 from mindsdb.integrations.utilities.utils import format_exception_error
 import mindsdb.utilities.profiler as profiler
+from mindsdb.utilities.functions import mark_process
+from mindsdb.utilities.context import context as ctx
 from mindsdb.utilities.config import Config
 
 
+class HandlersCache(UserDict):
+    def __init__(self, max_size: int = 5) -> None:
+        self._max_size = max_size
+        super().__init__()
+
+    def __setitem__(self, key, value) -> None:
+        if len(self.data) > self._max_size:
+            sorted_elements = sorted(
+                self.data.items(),
+                key=lambda x: x[1]['last_usage_at']
+            )
+            del self.data[sorted_elements[0][0]]
+        self.data[key] = {
+            'last_usage_at': time.time(),
+            'handler': value
+        }
+
+    def __getitem__(self, key: int) -> object:
+        el = super().__getitem__(key)
+        el['last_usage_at'] = time.time()
+        return el['handler']
+
+
+handlers_cacher = HandlersCache()
+
+
 @mark_process(name='learn')
-def learn_process(class_path, engine, context_dump, integration_id,
+def predict_process(predictor_record, ml_engine_name, handler_class, integration_id, df, args):
+    db.init()
+
+    if predictor_record.id not in handlers_cacher:
+        handlerStorage = HandlerStorage(integration_id)
+        modelStorage = ModelStorage(predictor_record.id)
+        ml_handler = handler_class(
+            engine_storage=handlerStorage,
+            model_storage=modelStorage,
+        )
+        handlers_cacher[predictor_record.id] = ml_handler
+    else:
+        ml_handler = handlers_cacher[predictor_record.id]
+
+    if ml_engine_name == 'LightwoodHandler':
+        args['code'] = predictor_record.code
+        args['target'] = predictor_record.to_predict[0]
+        args['dtype_dict'] = predictor_record.dtype_dict
+        args['learn_args'] = predictor_record.learn_args
+
+    if ml_engine_name in ('LangChainHandler',):
+        from mindsdb.api.mysql.mysql_proxy.controllers import SessionController
+        from mindsdb.api.mysql.mysql_proxy.executor.executor_commands import ExecuteCommands
+
+        sql_session = SessionController()
+        sql_session.database = 'mindsdb'
+
+        command_executor = ExecuteCommands(sql_session, executor=None)
+
+        args['executor'] = command_executor
+
+    predictions = ml_handler.predict(df, args)
+    ml_handler.close()
+    return predictions
+
+
+@mark_process(name='learn')
+def learn_process(class_path, engine, integration_id,
                   predictor_id, problem_definition, set_active,
                   base_predictor_id=None, training_data_df=None,
                   data_integration_ref=None, fetch_data_query=None, project_name=None):
-    ctx.load(context_dump)
     ctx.profiling = {
         'level': 0,
         'enabled': True,
@@ -37,7 +101,7 @@ def learn_process(class_path, engine, context_dump, integration_id,
         db.init()
 
         try:
-            target = problem_definition['target']
+            target = problem_definition.get('target', None)
 
             if data_integration_ref is not None:
                 database_controller = DatabaseController()
@@ -66,10 +130,6 @@ def learn_process(class_path, engine, context_dump, integration_id,
                 training_data_columns_count = len(training_data_df.columns)
                 training_data_rows_count = len(training_data_df)
 
-                if target not in training_data_df.columns:
-                    raise Exception(
-                        f'Prediction target "{target}" not found in training dataframe: {list(training_data_df.columns)}')
-
             predictor_record = db.Predictor.query.with_for_update().get(predictor_id)
             predictor_record.training_data_columns_count = training_data_columns_count
             predictor_record.training_data_rows_count = training_data_rows_count
@@ -82,6 +142,7 @@ def learn_process(class_path, engine, context_dump, integration_id,
 
             handlerStorage = HandlerStorage(integration_id)
             modelStorage = ModelStorage(predictor_id)
+            modelStorage.fileStorage.push()     # FIXME
 
             kwargs = {}
             if base_predictor_id is not None:
@@ -93,6 +154,7 @@ def learn_process(class_path, engine, context_dump, integration_id,
                 model_storage=modelStorage,
                 **kwargs
             )
+            handlers_cacher[predictor_record.id] = ml_handler
 
             if not ml_handler.generative:
                 if training_data_df is not None and target not in training_data_df.columns:
@@ -101,34 +163,36 @@ def learn_process(class_path, engine, context_dump, integration_id,
 
             # create new model
             if base_predictor_id is None:
-                ml_handler.create(target, df=training_data_df, args=problem_definition)
+                with profiler.Context('create'):
+                    ml_handler.create(target, df=training_data_df, args=problem_definition)
 
             # fine-tune (partially train) existing model
             else:
                 # load model from previous version, use it as starting point
-                problem_definition['base_model_id'] = base_predictor_id
-                ml_handler.finetune(df=training_data_df, args=problem_definition)
+                with profiler.Context('finetune'):
+                    problem_definition['base_model_id'] = base_predictor_id
+                    ml_handler.finetune(df=training_data_df, args=problem_definition)
 
             predictor_record.status = PREDICTOR_STATUS.COMPLETE
             predictor_record.active = set_active
             db.session.commit()
             # if retrain and set_active after success creation
-            with profiler.Context('learn_process update active'):
-                if set_active is True:
-                    models = get_model_records(
-                        name=predictor_record.name,
-                        project_id=predictor_record.project_id,
-                        active=None
-                    )
-                    for model in models:
-                        model.active = False
-                    models = [x for x in models if x.status == PREDICTOR_STATUS.COMPLETE]
-                    models.sort(key=lambda x: x.created_at)
-                    models[-1].active = True
+            if set_active is True:
+                models = get_model_records(
+                    name=predictor_record.name,
+                    project_id=predictor_record.project_id,
+                    active=None
+                )
+                for model in models:
+                    model.active = False
+                models = [x for x in models if x.status == PREDICTOR_STATUS.COMPLETE]
+                models.sort(key=lambda x: x.created_at)
+                models[-1].active = True
         except Exception as e:
             print(traceback.format_exc())
             error_message = format_exception_error(e)
 
+            predictor_record = db.Predictor.query.with_for_update().get(predictor_id)
             predictor_record.data = {"error": error_message}
             predictor_record.status = PREDICTOR_STATUS.ERROR
             db.session.commit()
