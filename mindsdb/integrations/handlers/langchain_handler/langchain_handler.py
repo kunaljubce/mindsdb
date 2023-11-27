@@ -14,7 +14,7 @@ from langchain.prompts import PromptTemplate
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain.chains.conversation.memory import ConversationSummaryBufferMemory
 
-from mindsdb.integrations.handlers.openai_handler.models import CHAT_MODELS as OPEN_AI_CHAT_MODELS
+from mindsdb.integrations.handlers.openai_handler.constants import CHAT_MODELS as OPEN_AI_CHAT_MODELS
 from mindsdb.integrations.handlers.langchain_handler.mindsdb_database_agent import MindsDBSQL
 from mindsdb.integrations.handlers.langchain_handler.tools import setup_tools
 from mindsdb.integrations.libs.base import BaseMLEngine
@@ -28,6 +28,9 @@ _DEFAULT_AGENT_MODEL = 'zero-shot-react-description'
 _DEFAULT_AGENT_TOOLS = ['python_repl', 'wikipedia']  # these require no additional arguments
 _ANTHROPIC_CHAT_MODELS = {'claude-2', 'claude-instant-1'}
 _PARSING_ERROR_PREFIX = 'Could not parse LLM output: `'
+
+logger = log.getLogger(__name__)
+
 
 class LangChainHandler(BaseMLEngine):
     """
@@ -365,7 +368,7 @@ class LangChainHandler(BaseMLEngine):
                         #
                         # Ideally, in the future, we would write a parser that is more robust and flexible than the one Langchain uses.
                         response = response.lstrip(_PARSING_ERROR_PREFIX).rstrip('`')
-                        log.logger.info(f"Agent failure, salvaging response...")
+                        logger.info(f"Agent failure, salvaging response...")
                         completions.append(response)
                 except Exception as e:
                     completions.append(f'agent failed with error:\n{str(e)}...')

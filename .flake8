@@ -1,4 +1,5 @@
 [flake8]
+min_python_version = 3.8.0
 max-line-length = 120
 ignore =
   # E402
@@ -16,13 +17,6 @@ exclude =
   build/*
   mindsdb/microservices_grpc/*
   # TODO: clean up this code
-  mindsdb/integrations/handlers/couchbase_handler/tests/test_couchbase_handler.py
-  mindsdb/integrations/handlers/crate_handler/crate_handler.py
-  mindsdb/integrations/handlers/crate_handler/tests/test_crate_handler.py
-  mindsdb/integrations/handlers/d0lt_handler/tests/test_d0lt_handler.py
-  mindsdb/integrations/handlers/databricks_handler/databricks_handler.py
-  mindsdb/integrations/handlers/datastax_handler/datastax_handler.py
-  mindsdb/integrations/handlers/db2_handler/*
   mindsdb/integrations/handlers/druid_handler/druid_handler.py
   mindsdb/integrations/handlers/dynamodb_handler/dynamodb_handler.py
   mindsdb/integrations/handlers/elasticsearch_handler/elasticsearch_handler.py
@@ -57,15 +51,13 @@ exclude =
   mindsdb/integrations/handlers/view_handler/view_handler.py
   mindsdb/integrations/handlers/yugabyte_handler/*
   mindsdb/integrations/handlers/opengauss_handler/*
+  mindsdb/integrations/handlers/dockerhub_handler/*
   mindsdb/integrations/libs/response.py
   mindsdb/integrations/utilities/utils.py
-  mindsdb/interfaces/model/model_controller.py
   mindsdb/migrations/env.py
-  mindsdb/utilities/log.py
   tests/handler_tests/test_storage_handler.py
   tests/integration_tests/flows/test_mysql_bin_api.py
   tests/prediction_latency_test/*
-  tests/unit/executor_test_base.py
   tests/unit/test_cache.py
   tests/unit/test_mongodb_handler.py
   tests/unit/test_mongodb_server.py
@@ -75,10 +67,7 @@ exclude =
   tests/unit/ml_handlers/test_ludwig.py
   tests/unit/ml_handlers/test_lightwood.py
   tests/unit/test_predictor_params.py
-  tests/unit/test_project_structure.py
   tests/unit/test_merlion_handler.py
-  mindsdb/integrations/handlers/byom_handler/byom_handler.py
-  mindsdb/integrations/handlers/byom_handler/proc_wrapper.py
   mindsdb/integrations/handlers/plaid_handler/*
   mindsdb/integrations/handlers/cohere_handler/*
   mindsdb/integrations/handlers/google_calendar_handler/*
@@ -117,6 +106,7 @@ exclude =
   mindsdb/integrations/handlers/google_fit_handler/*
   mindsdb/integrations/handlers/altibase_handler/*
   mindsdb/integrations/handlers/ms_teams_handler/*
+  mindsdb/integrations/handlers/discord_handler/*
   mindsdb/integrations/handlers/hana_handler/*
   mindsdb/integrations/handlers/sheets_handler/*
   mindsdb/integrations/handlers/autosklearn_handler/*

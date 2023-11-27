@@ -6,18 +6,19 @@ from mindsdb.integrations.handlers.rag_handler.settings import (
     LLMLoader,
     PersistedVectorStoreLoader,
     PersistedVectorStoreLoaderConfig,
+    RAGBaseParameters,
     RAGHandlerParameters,
     load_embeddings_model,
 )
-from mindsdb.utilities.log import get_log
+from mindsdb.utilities import log
 
-logger = get_log(logger_name=__name__)
+logger = log.getLogger(__name__)
 
 
-class QuestionAnswerer:
+class RAGQuestionAnswerer:
     """A class for using a RAG model for question answering"""
 
-    def __init__(self, args: RAGHandlerParameters):
+    def __init__(self, args: RAGBaseParameters):
 
         self.output_data = defaultdict(list)
 
@@ -42,11 +43,13 @@ class QuestionAnswerer:
 
         self.prompt_template = args.prompt_template
 
-        llm_config = {"llm_config": args.llm_params.dict()}
+        if isinstance(args, RAGHandlerParameters):
 
-        llm_loader = LLMLoader(**llm_config)
+            llm_config = {"llm_config": args.llm_params.dict()}
 
-        self.llm = llm_loader.load_llm()
+            llm_loader = LLMLoader(**llm_config)
+
+            self.llm = llm_loader.load_llm()
 
     def __call__(self, question: str) -> defaultdict:
         return self.query(question)
