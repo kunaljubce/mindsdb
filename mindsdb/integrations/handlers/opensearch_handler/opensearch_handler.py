@@ -30,19 +30,28 @@ client = OpenSearch(
     ssl_show_warn = False
 )
 
+print(client.info())
+
 index_name = 'python-test-index'
 index_body = {
-  'settings': {
-    'index': {
-      'number_of_shards': 4
+    "mappings":{
+        "properties": {
+            "title": {"type": "text", "analyzer": "english"},
+            "ethnicity": {"type": "text", "analyzer": "standard"},
+            "director": {"type": "text", "analyzer": "standard"},
+            "cast": {"type": "text", "analyzer": "standard"},
+            "genre": {"type": "text", "analyzer": "standard"},
+            "plot": {"type": "text", "analyzer": "english"},
+            "year": {"type": "integer"},
+            "wiki_page": {"type": "keyword"}
+        }
     }
-  }
 }
 
 try:
-    response_create_index = client.indices.create(index_name, body=index_body)
+  response_create_index = client.indices.create(index_name, body=index_body)
 except exceptions.RequestError as e:
-    print(e.status_code, '|', e.info, '|', e.error)
-    #raise e
-    if e.status_code == 400 and e.error == 'resource_already_exists_exception':
-        print(insert_data_to_index(client=client))     
+  print(e.status_code, '|', e.info, '|', e.error)
+  #raise e
+  if e.status_code == 400 and e.error == 'resource_already_exists_exception':
+      print(insert_data_to_index(client=client))
